@@ -1,0 +1,10 @@
+seed: 42
+experiment_name: hog_rgb_hsv_logreg
+validation_size: 0.2
+image_size: 64
+histogram_bins: 16
+feature_method: hog_color
+model:
+  type: logistic_regression
+  C: 1.0
+  max_iter: 2000

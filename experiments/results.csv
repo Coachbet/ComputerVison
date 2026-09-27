@@ -1,0 +1,8 @@
+timestamp_utc,experiment,validation_accuracy,validation_macro_f1,kaggle_score,notes
+2026-09-27T18:36:32.589487+00:00,rgb_hsv_hist_logreg,0.7798582995951417,0.7972082578597787,,Baseline automatique
+2026-09-27T18:53:00.290797+00:00,hog_rgb_hsv_logreg,0.756578947368421,0.7485438908843692,,Baseline automatique
+2026-09-27T19:04:42.846375+00:00,lenet_cnn_augmented,0.4256072874493927,0.4262372846185318,,"LeNet-style CNN, class weights, augmentation, early stopping"
+2026-09-27T19:11:27.513618+00:00,style_metadata_extra_trees,0.9362348178137652,0.9417463811413036,,"Native dimensions/mode/filesize, alpha, colour statistics and RGB/HSV histograms"
+2026-09-27T19:15:23.282450+00:00,style_metadata_hist_gradient_boosting,0.9600202429149798,0.964892783593962,,"Nonlinear boosting over style, native metadata, alpha and colour features"
+2026-09-27T19:19:31.160837+00:00,mobilenet_v3_transfer_learning,0.6578947368421053,0.6396330680108633,,ImageNet pretrained MobileNetV3Small with fine-tuning
+2026-09-27T19:22:00+00:00,style_mobilenet_ensemble,0.9626,0.9668,,50/50 blend of full-data style boosting and MobileNetV3 probabilities

@@ -1,0 +1,10 @@
+seed: 42
+experiment_name: mobilenet_v3_transfer_learning
+validation_size: 0.2
+image_size: 160
+batch_size: 48
+head_epochs: 8
+fine_tune_epochs: 8
+head_learning_rate: 0.001
+fine_tune_learning_rate: 0.00002
+early_stopping_patience: 3

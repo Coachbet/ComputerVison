@@ -1,0 +1,12 @@
+seed: 42
+experiment_name: style_metadata_extra_trees
+validation_size: 0.2
+image_size: 96
+histogram_bins: 32
+feature_method: style
+notes: Native dimensions/mode/filesize, alpha, colour statistics and RGB/HSV histograms
+model:
+  type: extra_trees
+  n_estimators: 800
+  min_samples_leaf: 1
+  max_features: sqrt

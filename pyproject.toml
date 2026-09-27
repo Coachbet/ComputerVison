@@ -1,0 +1,35 @@
+[project]
+name = "emoji-provider-classification"
+version = "0.1.0"
+description = "Reproducible computer-vision project for emoji provider classification"
+authors = [
+    { name = "Coachbet", email = "louis.bettelli@student-cs.fr" }
+]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "joblib==1.4.2",
+    "matplotlib==3.9.2",
+    "numpy==2.0.2",
+    "pandas==2.2.3",
+    "pillow==11.0.0",
+    "pyyaml==6.0.2",
+    "scikit-image==0.24.0",
+    "scikit-learn==1.5.2",
+    "streamlit==1.40.1",
+    "tensorflow==2.18.0",
+]
+
+[dependency-groups]
+dev = ["pytest==8.3.3"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["emoji_provider*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

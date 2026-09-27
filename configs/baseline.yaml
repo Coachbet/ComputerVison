@@ -1,0 +1,10 @@
+seed: 42
+experiment_name: rgb_hsv_hist_logreg
+validation_size: 0.2
+image_size: 96
+histogram_bins: 32
+feature_method: color
+model:
+  type: logistic_regression
+  C: 1.0
+  max_iter: 2000
