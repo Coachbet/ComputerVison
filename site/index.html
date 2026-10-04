@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qui a dessiné cet emoji ? Cours sur le gradient boosting</title>
+<meta name="description" content="Cours illustré sur le modèle HistGradientBoosting qui reconnaît le fournisseur d'un emoji avec 96 % d'accuracy.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="shell">
+
+<nav class="toc" aria-label="Sommaire">
+  <div class="brand">Qui a dessiné cet emoji ?</div>
+  <div class="sub">Cours sur le gradient boosting d'arbres</div>
+  <ol>
+    <li><a href="#probleme">Le problème</a></li>
+    <li><a href="#vue">Le modèle en un coup d'œil</a></li>
+    <li><a href="#lecture">Lire l'image</a></li>
+    <li><a href="#mesures">Les 222 mesures</a></li>
+    <li><a href="#arbre">L'arbre de décision</a></li>
+    <li><a href="#boosting">Le boosting</a></li>
+    <li><a href="#reglages">Les réglages</a></li>
+    <li><a href="#resultats">Les résultats</a></li>
+    <li><a href="#limites">Limites et suite</a></li>
+    <li><a href="#code">Le code</a></li>
+    <li><a href="#quiz">Vérifier sa compréhension</a></li>
+    <li><a href="#ressources">Ressources</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ============================ HERO ============================ -->
+<section class="hero" id="debut">
+  <div class="col" style="max-width:62rem">
+    <h1>Qui a dessiné cet emoji&nbsp;?</h1>
+    <p class="lede">Le même drapeau, la même radio, le même visage : Apple, Google, Samsung, Facebook, Messenger, Mozilla et WhatsApp les dessinent chacun à leur façon. Ce cours explique, pas à pas, le modèle qui retrouve le fournisseur avec 96&nbsp;% de réussite.</p>
+
+    <div class="lineup" id="lineup" role="group" aria-label="Un emoji de chaque fournisseur : cliquez pour voir ce que le modèle lit"></div>
+    <div class="peek" id="peek" aria-live="polite">Cliquez sur un emoji.</div>
+
+    <div class="facts">
+      <span><b>9 879</b> images d'entraînement</span>
+      <span><b>222</b> mesures par image</span>
+      <span><b>2 450</b> petits arbres</span>
+      <span><b>0,960</b> d'accuracy en validation</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 1. PROBLEME ============================ -->
+<section id="probleme">
+  <div class="col">
+    <h2>Le problème</h2>
+    <p class="lede">Deviner l'auteur d'un dessin, sans se préoccuper de ce qu'il représente.</p>
+
+    <p>On donne au modèle une image d'emoji. Il doit répondre par l'un des sept fournisseurs. C'est une <strong>classification à 7 classes</strong>. Le sens de l'emoji ne sert à rien : la radio d'Apple et la radio de Google représentent le même objet. Ce qui change, c'est le <em>style</em> : couleurs, contours, ombres, proportions, et même la façon dont le fichier a été fabriqué.</p>
+
+    <div class="analogy">
+      <p>Reconnaître un écrivain à sa <strong>graphie</strong> plutôt qu'à son histoire. Deux personnes copient la même phrase : on les distingue à l'épaisseur du trait, à la pente des lettres, au type de stylo. Notre modèle cherche la graphie de chaque fournisseur.</p>
+    </div>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card" id="chart-classes"></div>
+      <figcaption>Nombre d'images par fournisseur dans le jeu d'entraînement (9 879 au total). Les classes sont déséquilibrées : Mozilla en a cinq fois moins qu'Apple. Le modèle en tient compte avec <code>class_weight="balanced"</code> (chapitre 7).</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <h3>Ce que contient une image du jeu de données</h3>
+    <p>Chaque fichier est un PNG. Mais tous les PNG ne se ressemblent pas : leur <strong>largeur</strong> varie (72, 160 ou 240 pixels le plus souvent), leur <strong>mode</strong> aussi (<code>RGBA</code> avec transparence, <code>P</code> avec palette de 256 couleurs, <code>RGB</code>…), et leur <strong>poids</strong> va de 2 Ko à plus de 30 Ko. Ces propriétés viennent de la chaîne de fabrication de chaque fournisseur. Nous verrons au chapitre 4 qu'elles pèsent lourd dans la décision.</p>
+  </div>
+</section>
+
+<!-- ============================ 2. VUE D'ENSEMBLE ============================ -->
+<section id="vue">
+  <div class="col">
+    <h2>Le modèle en un coup d'œil</h2>
+    <p class="lede">Quatre stations, de l'image brute à la réponse.</p>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card">
+<svg viewBox="0 0 960 330" role="img" aria-labelledby="pipe-t pipe-d">
+  <title id="pipe-t">Schéma du modèle</title>
+  <desc id="pipe-d">Une image devient 222 nombres, qui traversent 350 tours de 7 arbres, puis un calcul de probabilités donne le fournisseur.</desc>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="f-muted"/></marker>
+  </defs>
+
+  <!-- station 1 -->
+  <text x="20" y="28" font-weight="700" font-size="15">1. Lire</text>
+  <rect x="20" y="45" width="140" height="140" rx="12" class="f-panel s-line"/>
+  <image href="img/samsung.png" x="40" y="65" width="100" height="100"/>
+  <text x="90" y="210" text-anchor="middle" font-size="13" class="muted">une image PNG</text>
+  <text x="90" y="228" text-anchor="middle" font-size="13" class="muted">72 à 240 px</text>
+
+  <path d="M170 115 H215" class="s-muted" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- station 2 -->
+  <text x="225" y="28" font-weight="700" font-size="15">2. Mesurer</text>
+  <rect x="225" y="45" width="40" height="42" rx="6" class="f-amber"/>
+  <text x="275" y="63" font-size="13" font-weight="700">A · 15 métadonnées</text>
+  <text x="275" y="80" font-size="12" class="muted">taille, poids, transparence, mode</text>
+  <rect x="225" y="100" width="40" height="42" rx="6" class="f-leaf2"/>
+  <text x="275" y="118" font-size="13" font-weight="700">B · 15 statistiques</text>
+  <text x="275" y="135" font-size="12" class="muted">moyenne, écart, quantiles de couleur</text>
+  <rect x="225" y="155" width="40" height="110" rx="6" class="f-leaf"/>
+  <text x="275" y="173" font-size="13" font-weight="700">C · 192 histogrammes</text>
+  <text x="275" y="190" font-size="12" class="muted">6 canaux × 32 intervalles de couleur</text>
+  <text x="225" y="296" font-size="13" font-weight="700">= 222 nombres par image</text>
+
+  <path d="M478 150 H512" class="s-muted" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- station 3 -->
+  <text x="520" y="28" font-weight="700" font-size="15">3. Boosting : 350 tours</text>
+  <g>
+    <rect x="520" y="45" width="235" height="38" rx="8" class="f-panel s-line"/>
+    <text x="532" y="69" font-size="12.5">Tour 1 · 7 arbres (un par fournisseur)</text>
+    <rect x="520" y="92" width="235" height="38" rx="8" class="f-panel s-line"/>
+    <text x="532" y="116" font-size="12.5">Tour 2 · corrige les erreurs du tour 1</text>
+    <rect x="520" y="139" width="235" height="38" rx="8" class="f-panel s-line"/>
+    <text x="532" y="163" font-size="12.5">Tour 3 · corrige ce qui reste faux</text>
+    <text x="637" y="203" text-anchor="middle" font-size="22" class="muted">⋮</text>
+    <rect x="520" y="215" width="235" height="38" rx="8" class="f-leaf-soft s-leaf"/>
+    <text x="532" y="239" font-size="12.5" font-weight="700">Tour 350 · 350 × 7 = 2 450 arbres</text>
+  </g>
+  <text x="520" y="296" font-size="13" font-weight="700">chaque tour ajoute une petite correction</text>
+
+  <path d="M762 150 H798" class="s-muted" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+
+  <!-- station 4 -->
+  <text x="806" y="28" font-weight="700" font-size="15">4. Décider</text>
+  <g font-size="12">
+    <text x="806" y="62">apple</text><rect x="882" y="52" width="12" height="12" rx="2" class="f-muted2"/>
+    <text x="806" y="82">facebook</text><rect x="882" y="72" width="8" height="12" rx="2" class="f-muted2"/>
+    <text x="806" y="102">google</text><rect x="882" y="92" width="19" height="12" rx="2" class="f-muted2"/>
+    <text x="806" y="122">messenger</text><rect x="882" y="112" width="7" height="12" rx="2" class="f-muted2"/>
+    <text x="806" y="142">mozilla</text><rect x="882" y="132" width="5" height="12" rx="2" class="f-muted2"/>
+    <text x="806" y="162" font-weight="700">samsung</text><rect x="882" y="152" width="66" height="12" rx="2" class="f-leaf"/>
+    <text x="806" y="182">whatsapp</text><rect x="882" y="172" width="10" height="12" rx="2" class="f-muted2"/>
+  </g>
+  <text x="806" y="215" font-size="13" class="muted">scores → probabilités</text>
+  <text x="806" y="233" font-size="13" font-weight="700">réponse : samsung</text>
+  <text x="806" y="296" font-size="12" class="muted">(valeurs d'illustration)</text>
+</svg>
+      </div>
+      <figcaption>Le modèle ne regarde pas les pixels un par un. Il résume chaque image en 222 nombres, puis fait voter une longue file de petits arbres qui se corrigent les uns les autres.</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <h3>Où sont les « couches » ?</h3>
+    <p>Ce modèle <strong>n'est pas un réseau de neurones</strong>. Il n'a ni neurones, ni convolutions, ni couches cachées au sens d'un CNN. Ses « couches » sont de deux sortes :</p>
+    <ul>
+      <li><strong>Les blocs de mesures</strong> (A, B, C) : ils transforment l'image en nombres. Rien n'est appris à cette étape, les formules sont écrites à la main.</li>
+      <li><strong>Les tours de boosting</strong> : 350 étages empilés, chacun composé de 7 arbres de décision. Les étages s'ajoutent l'un après l'autre, comme des couches de peinture.</li>
+    </ul>
+
+    <div class="tablewrap card" style="padding:0.4rem 0.6rem">
+    <table>
+      <thead><tr><th></th><th>Réseau de neurones (CNN)</th><th>Notre modèle</th></tr></thead>
+      <tbody>
+        <tr><th>Entrée</th><td>les pixels bruts</td><td>222 mesures calculées à partir de l'image</td></tr>
+        <tr><th>Ce qu'on empile</th><td>des couches de neurones</td><td>des tours de petits arbres de décision</td></tr>
+        <tr><th>Ce qui est appris</th><td>des poids et des filtres</td><td>des questions (« largeur ≤ 134 px ? ») et des corrections à ajouter</td></tr>
+        <tr><th>Calcul</th><td>multiplications de matrices</td><td>comparaisons et additions</td></tr>
+        <tr><th>Matériel</th><td>GPU recommandé</td><td>un processeur suffit</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <div class="note"><p>Pour ce jeu de données, ce modèle simple fait mieux que nos CNN essayés (chapitre 8). Quand l'indice décisif est une propriété du fichier plutôt que du dessin, les arbres sont à l'aise.</p></div>
+  </div>
+</section>
+
+<!-- ============================ 3. LECTURE ============================ -->
+<section id="lecture">
+  <div class="col">
+    <h2>Lire l'image</h2>
+    <p class="lede">Avant de mesurer, il faut ouvrir le fichier et régler le problème de la transparence.</p>
+
+    <p>Beaucoup d'emojis sont en <code>RGBA</code> : trois canaux de couleur (rouge, vert, bleu) plus un canal <strong>alpha</strong> qui dit, pour chaque pixel, s'il est opaque (255) ou transparent (0). Le fond autour du dessin est transparent. Un ordinateur ne « voit » pas un damier : il lit simplement des nombres, et la couleur cachée d'un pixel transparent peut être n'importe quoi.</p>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card">
+        <div class="trio">
+          <div><div class="pic checker"><img src="img/apple.png" alt="Emoji Apple sur fond damier"></div><p><b>1. L'original</b><br>le damier montre la transparence</p></div>
+          <div><div class="pic" style="background:#fff"><img src="img/apple.png" alt="Emoji Apple sur fond blanc"></div><p><b>2. Posé sur fond blanc</b><br>les pixels transparents deviennent blancs</p></div>
+          <div><div class="pic small" style="background:#fff"><img src="img/apple.png" alt="Emoji Apple réduit à 96 pixels" style="image-rendering:auto"></div><p><b>3. Redimensionné en 96 × 96</b><br>même taille pour toutes les images</p></div>
+        </div>
+      </div>
+      <figcaption>Les trois transformations appliquées à chaque image avant de calculer les histogrammes de couleur (fonction <code>load_rgb</code>).</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <div class="analogy"><p>On colle un autocollant transparent sur une feuille blanche avant de le photocopier. Sans cela, le fond « vide » se copierait en noir ou en couleur aléatoire selon le fichier.</p></div>
+
+    <h3>Les trois gestes de <code>load_rgb</code></h3>
+    <ol>
+      <li><strong>Convertir en RGBA</strong>, quel que soit le mode d'origine (palette, gris, RGB…).</li>
+      <li><strong>Composer sur fond blanc</strong> avec <code>Image.alpha_composite</code> : un pixel à moitié transparent devient un mélange moitié couleur, moitié blanc.</li>
+      <li><strong>Redimensionner à 96 × 96</strong> avec le filtre <code>LANCZOS</code>, qui lisse proprement quand on réduit ou agrandit.</li>
+    </ol>
+
+    <div class="warn">
+      <p>Les métadonnées (bloc A) sont lues <strong>avant</strong> cette conversion, sur le fichier d'origine : largeur, hauteur, mode et poids du fichier. Si on redimensionnait d'abord, ces indices disparaîtraient. C'est voulu, et nous verrons au chapitre 9 pourquoi cela mérite d'être discuté.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 4. MESURES ============================ -->
+<section id="mesures">
+  <div class="col">
+    <h2>Les 222 mesures</h2>
+    <p class="lede">Une image contient des milliers de pixels. On la résume en 222 nombres que les arbres savent exploiter.</p>
+
+    <p>Donner tous les pixels à un arbre ne marcherait pas bien : il faudrait des milliers de colonnes, et aucune ne dit « ceci est un contour rond » ou « cette image est très colorée ». Une <strong>feature</strong> (en français, une <em>caractéristique</em>) est une mesure choisie pour répondre à une question utile. Le modèle en utilise 222, réparties en trois blocs.</p>
+
+    <div class="analogy">
+      <p>Un détective ne mémorise pas toute la scène de crime : il remplit une <strong>fiche</strong>. Taille du pied, marque de la semelle, couleur du manteau. Le modèle remplit la même fiche pour chaque emoji, puis apprend quelles cases trahissent chaque fournisseur.</p>
+    </div>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card">
+<svg viewBox="0 0 900 200" role="img" aria-label="Les trois blocs de mesures A, B et C">
+  <rect x="10" y="30" width="220" height="64" rx="8" class="f-amber"/>
+  <rect x="240" y="30" width="220" height="64" rx="8" class="f-leaf2"/>
+  <rect x="470" y="30" width="420" height="64" rx="8" class="f-leaf"/>
+  <text x="120" y="58" text-anchor="middle" font-weight="800" font-size="20" style="fill:#fff">A</text>
+  <text x="120" y="80" text-anchor="middle" font-size="13" style="fill:#fff">15 colonnes</text>
+  <text x="350" y="58" text-anchor="middle" font-weight="800" font-size="20" style="fill:#fff">B</text>
+  <text x="350" y="80" text-anchor="middle" font-size="13" style="fill:#fff">15 colonnes</text>
+  <text x="680" y="58" text-anchor="middle" font-weight="800" font-size="20" style="fill:#fff">C</text>
+  <text x="680" y="80" text-anchor="middle" font-size="13" style="fill:#fff">192 colonnes</text>
+  <text x="10" y="124" font-size="14" font-weight="700">La fiche du fichier</text>
+  <text x="10" y="144" font-size="12.5" class="muted">taille, poids, transparence, mode</text>
+  <text x="240" y="124" font-size="14" font-weight="700">Le résumé de la palette</text>
+  <text x="240" y="144" font-size="12.5" class="muted">moyenne, écart-type, quantiles</text>
+  <text x="470" y="124" font-size="14" font-weight="700">L'empreinte des couleurs</text>
+  <text x="470" y="144" font-size="12.5" class="muted">6 canaux (R, G, B, H, S, V) × 32 intervalles</text>
+  <text x="890" y="186" text-anchor="end" font-size="14" font-weight="700">15 + 15 + 192 = 222 colonnes par image</text>
+</svg>
+      </div>
+      <figcaption>Le bloc C compte le plus de colonnes (la largeur des blocs n'est pas proportionnelle). Ce sont pourtant les petits blocs A et B qui portent le plus d'information par colonne.</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <h3>Bloc A : la fiche d'identité du fichier (15 colonnes)</h3>
+    <div class="tablewrap">
+    <table>
+      <thead><tr><th>Mesure</th><th>Ce qu'elle dit</th></tr></thead>
+      <tbody>
+        <tr><td><code>log_largeur</code>, <code>log_hauteur</code>, <code>ratio_l_h</code></td><td>taille d'origine de l'image et sa forme. Le logarithme évite qu'un écart de 72 à 240 pèse trop.</td></tr>
+        <tr><td><code>log_taille_fichier</code></td><td>poids du PNG sur le disque, révélateur du logiciel d'export et de la compression</td></tr>
+        <tr><td><code>alpha_moyen</code>, <code>alpha_ecart_type</code></td><td>quantité de transparence et à quel point elle varie (bords doux ou nets)</td></tr>
+        <tr><td><code>part_pixels_visibles</code></td><td>part de l'image réellement dessinée (alpha &gt; 0,05)</td></tr>
+        <tr><td><code>bbox_largeur</code>, <code>bbox_hauteur</code>, <code>bbox_aire</code></td><td>boîte qui entoure le dessin : certains fournisseurs remplissent plus le cadre</td></tr>
+        <tr><td><code>mode_RGBA</code>, <code>mode_RGB</code>, <code>mode_P</code>, <code>mode_LA</code>, <code>mode_L</code></td><td>5 colonnes 0/1 : le mode du fichier d'origine</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card" id="chart-size"></div>
+      <figcaption>Répartition de la largeur d'origine (en pixels) pour chaque fournisseur. WhatsApp est presque toujours à 160, Samsung et Google à 72, Facebook, Messenger et Mozilla à 240.</figcaption>
+    </figure>
+    <figure>
+      <div class="figure-card" id="chart-kb"></div>
+      <figcaption>Poids médian du fichier PNG. Un fichier Facebook pèse en médiane plus de dix fois celui de Samsung.</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <h3>Bloc B : le résumé de la palette (15 colonnes)</h3>
+    <p>Sur les seuls pixels visibles (le fond transparent est exclu), on calcule pour chaque canal rouge, vert, bleu : la <strong>moyenne</strong>, l'<strong>écart-type</strong> (les couleurs sont-elles variées ?) et trois <strong>quantiles</strong> à 10 %, 50 % et 90 % (les teintes sombres, médianes et claires). 5 statistiques × 3 canaux = 15 colonnes.</p>
+
+    <h3>Bloc C : l'empreinte des couleurs (192 colonnes)</h3>
+    <p>Un <strong>histogramme</strong> compte combien de pixels tombent dans chaque plage de valeurs. Ici, chacune des 256 valeurs possibles d'un canal est regroupée en 32 intervalles, et on divise par le nombre de pixels pour que la somme fasse 1. On le fait pour 6 canaux :</p>
+    <ul>
+      <li><strong>RGB</strong> : rouge, vert, bleu (le mélange de lumière) ;</li>
+      <li><strong>HSV</strong> : teinte (<em>hue</em>, la « couleur » au sens du cercle chromatique), saturation (vivacité) et valeur (luminosité).</li>
+    </ul>
+    <p>6 canaux × 32 intervalles = 192 colonnes. HSV est précieux car il sépare ce que RGB mélange : deux rouges, l'un vif et l'autre pastel, ont la même teinte mais pas la même saturation.</p>
+
+    <div class="analogy"><p>La <strong>palette d'un peintre</strong> : on ne sait pas où est chaque tache, mais on voit combien de bleu, de jaune et de blanc il a utilisé. Un histogramme oublie la position des pixels et garde seulement les proportions.</p></div>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card">
+        <div class="controls">
+          <span>Canal :</span>
+          <div class="seg" id="hist-seg" role="group" aria-label="Canal de couleur"></div>
+        </div>
+        <div id="chart-hist"></div>
+        <div class="legend" id="hist-legend"></div>
+      </div>
+      <figcaption>Histogramme moyen de chaque fournisseur (250 images tirées au hasard par fournisseur, mêmes traitements que le modèle : fond blanc, 96 × 96, 32 intervalles). Le fond blanc crée un pic énorme (teinte 0, saturation 0, valeur et RGB au maximum) : il sort du graphique et est signalé par un texte et une flèche.</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <div class="note"><p>Pourquoi 222 colonnes et pas des pixels ? Parce qu'un arbre pose des questions du type « cette colonne dépasse-t-elle ce seuil ? ». Il lui faut des colonnes dont chacune a un sens. « Le pixel 4 321 est-il rouge ? » n'en a presque pas.</p></div>
+  </div>
+</section>
+
+<!-- ============================ 5. ARBRE ============================ -->
+<section id="arbre">
+  <div class="col">
+    <h2>L'arbre de décision</h2>
+    <p class="lede">La brique de base : une suite de questions oui / non.</p>
+
+    <p>Un arbre de décision pose une première question sur une mesure (« la largeur est-elle inférieure à 134 pixels ? »), envoie l'image vers la branche « oui » ou « non », pose une deuxième question, et ainsi de suite jusqu'à une <strong>feuille</strong> qui donne la réponse. À l'entraînement, il choisit chaque question pour que les deux groupes obtenus soient aussi <em>purs</em> que possible, c'est-à-dire contiennent surtout un seul fournisseur.</p>
+
+    <div class="analogy"><p>Le <strong>jeu des vingt questions</strong>. Pour deviner un objet, on pose d'abord la question qui élimine le plus de possibilités (« est-ce un animal ? »), pas une question trop précise. L'arbre fait pareil avec des nombres.</p></div>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card" id="chart-tree"></div>
+      <figcaption>Un vrai arbre, appris sur nos 9 879 images, mais avec <strong>seulement 3 mesures</strong> (largeur, mode, poids du fichier) et 3 niveaux. Chaque feuille indique le fournisseur majoritaire et combien d'images elle contient. Ce n'est pas un arbre du modèle final, qui en utilise 2 450 sur 222 mesures, mais il montre le principe. Deux feuilles voisines peuvent donner la même réponse : la dernière question sert alors à isoler les images mal classées.</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <p>Cet arbre minuscule, sans regarder une seule couleur, classe correctement environ <strong id="tree-acc">76 %</strong> des images d'entraînement. C'est le signe que les propriétés du fichier sont très informatives dans ce jeu de données.</p>
+
+    <h3>Le défaut d'un arbre seul</h3>
+    <p>Si on laisse un arbre grandir sans limite, il finit par créer une feuille pour presque chaque image : il retient le jeu d'entraînement par cœur et se trompe sur les nouvelles images. C'est le <strong>surapprentissage</strong>.</p>
+    <div class="analogy"><p>L'élève qui apprend le corrigé par cœur : parfait sur les exercices déjà vus, perdu dès que l'énoncé change.</p></div>
+    <p>Il existe deux grandes façons de corriger cela en combinant beaucoup d'arbres :</p>
+    <ul>
+      <li>la <strong>forêt aléatoire</strong> : on entraîne beaucoup d'arbres <em>en parallèle</em>, chacun avec un peu de hasard, et on les fait voter ;</li>
+      <li>le <strong>boosting</strong> : on entraîne les arbres <em>l'un après l'autre</em>, chacun cherchant à réparer les erreurs des précédents. C'est notre modèle, et c'est l'objet du chapitre suivant.</li>
+    </ul>
+
+    <div class="history">
+      <h4>Un peu d'histoire</h4>
+      <p>L'arbre de décision moderne est popularisé en <strong>1984</strong> par le livre <em>Classification and Regression Trees</em> (CART) de Leo Breiman, Jerome Friedman, Richard Olshen et Charles Stone. Deux de ses auteurs inventeront ensuite, chacun de son côté, les forêts aléatoires (Breiman, 2001) et le gradient boosting (Friedman, 2001) : deux idées pour rendre les arbres, fragiles seuls, redoutables en groupe.</p>
+    </div>
+
+    <h3>En vidéo</h3>
+    <figure>
+      <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/_L39rN6gz7Y" title="StatQuest : arbres de décision et de classification" allow="accelerometer; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      <div class="video-meta">StatQuest with Josh Starmer, « Decision and Classification Trees, Clearly Explained ». En anglais. <a href="https://www.youtube.com/watch?v=_L39rN6gz7Y" target="_blank" rel="noopener">Ouvrir sur YouTube</a></div>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================ 6. BOOSTING ============================ -->
+<section id="boosting">
+  <div class="col">
+    <h2>Le boosting</h2>
+    <p class="lede">Beaucoup de petits arbres médiocres, mis bout à bout, font un modèle très précis.</p>
+
+    <p>Le principe tient en trois phrases : on commence par une prédiction très simple. On regarde où elle se trompe. On entraîne un petit arbre dont le seul travail est de <strong>corriger ces erreurs</strong>, puis on ajoute sa correction, atténuée, à la prédiction. On recommence 350 fois.</p>
+
+    <div class="analogy">
+      <p>Le <strong>golf</strong>. Le premier coup envoie la balle vers le trou, sans l'atteindre. Le deuxième ne vise pas le trou depuis le départ : il corrige la distance <em>qui reste</em>. Le troisième corrige ce qui reste encore. Chaque coup est modeste, mais leur somme finit dans le trou. Et si on joue des coups courts et prudents (un petit <em>learning rate</em>), on évite de dépasser le trou.</p>
+    </div>
+
+    <h3>Essayez : le boosting sur un exemple à une dimension</h3>
+    <p>Pour voir le mécanisme sans 222 colonnes, voici le boosting appliqué à une courbe bruitée. Chaque « arbre » est ici une marche d'escalier (une seule question). Augmentez le nombre de tours : la courbe orange épouse peu à peu les points.</p>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card">
+        <div class="controls">
+          <label>Tours <input type="range" id="b-rounds" min="0" max="60" value="12" aria-label="Nombre de tours"><output id="b-rounds-o">12</output></label>
+          <label>Learning rate <input type="range" id="b-lr" min="0.05" max="1" step="0.05" value="0.3" aria-label="Learning rate"><output id="b-lr-o">0,30</output></label>
+          <button class="ctl" id="b-res" aria-pressed="false">Montrer les erreurs restantes</button>
+          <button class="ctl" id="b-new">Nouveaux points</button>
+        </div>
+        <div id="chart-boost"></div>
+        <div class="legend"><span><i style="--c:#7f8c97"></i>points à prédire</span><span><i style="--c:#d98e04"></i>prédiction après N tours</span><span><i style="--c:#c0392b"></i>erreur restante</span></div>
+      </div>
+      <figcaption>Exemple pédagogique avec de faux points (une courbe sinusoïdale bruitée), pas des données du projet. Avec un learning rate de 1, la courbe colle vite mais suit aussi le bruit ; avec un learning rate faible, elle avance prudemment et demande plus de tours.</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <h3>Et avec 7 fournisseurs ?</h3>
+    <p>Notre problème n'a pas une sortie mais sept. À chaque tour, le modèle construit donc <strong>un arbre par fournisseur</strong> : 7 arbres. Chaque arbre propose une correction pour le <em>score</em> d'une classe. Le score d'une classe est simplement la somme de toutes les corrections reçues :</p>
+    <div class="eqs">score(samsung) = point de départ + 0,08 × arbre₁(image) + 0,08 × arbre₂(image) + … + 0,08 × arbre₃₅₀(image)</div>
+    <p>À la fin, une fonction appelée <strong>softmax</strong> transforme les 7 scores en 7 probabilités positives dont la somme fait 100 %. La plus grande gagne.</p>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card">
+        <div class="controls">
+          <label>Tours déjà effectués <input type="range" id="s-round" min="0" max="12" value="0" aria-label="Tours effectués"><output id="s-round-o">0</output></label>
+        </div>
+        <div id="chart-soft"></div>
+      </div>
+      <figcaption>Illustration avec des nombres inventés pour une image fictive de Samsung. Au départ, les 7 classes sont à égalité. Chaque tour ajoute de petites corrections, et la bonne classe finit par dominer. Dans le vrai modèle, cela continue pendant 350 tours.</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <h3>Pourquoi « Hist » ?</h3>
+    <p>Notre classe s'appelle <code>HistGradientBoostingClassifier</code>. Le « Hist » signifie que, avant de commencer, chaque colonne est découpée en au plus <strong>255 paquets</strong> de valeurs voisines (un histogramme). Pour choisir une question, l'arbre n'a plus à essayer tous les seuils possibles entre 9 879 valeurs distinctes : il essaie seulement les frontières entre paquets. C'est beaucoup plus rapide, pour une précision presque identique.</p>
+    <div class="analogy"><p>Trier du courrier : plutôt que de comparer deux enveloppes au gramme près, on les range dans des bacs « moins de 20 g », « 20 à 50 g », etc. Décider dans quel bac une lettre tombe suffit.</p></div>
+    <p><em>Attention à ne pas confondre :</em> les 32 intervalles du bloc C servent à fabriquer des mesures, les 255 paquets servent à accélérer l'entraînement. Ce sont deux découpages différents.</p>
+
+    <div class="history">
+      <h4>Les grandes dates</h4>
+      <ul class="timeline">
+        <li><b>1984</b><span>CART : les arbres de décision deviennent une méthode standard.</span></li>
+        <li><b>1995</b><span>AdaBoost (Freund et Schapire) : première méthode de boosting pratique. Elle donne plus de poids aux exemples mal classés.</span></li>
+        <li><b>2001</b><span>Jerome Friedman généralise l'idée : le <em>gradient boosting</em>. Chaque arbre suit la direction qui réduit le plus l'erreur, comme une descente de pente.</span></li>
+        <li><b>2016</b><span>XGBoost (Chen et Guestrin) rend le gradient boosting rapide et domine les concours de data science.</span></li>
+        <li><b>2017</b><span>LightGBM (Microsoft) popularise le découpage en histogramme.</span></li>
+        <li><b>2019</b><span>scikit-learn 0.21 introduit <code>HistGradientBoosting</code>, inspiré de LightGBM. La version stable arrive avec scikit-learn 1.0.</span></li>
+      </ul>
+    </div>
+
+    <h3>En vidéo</h3>
+    <figure>
+      <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/3CC4N4z3GJc" title="StatQuest : gradient boosting, idées principales" allow="accelerometer; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      <div class="video-meta">Le principe du gradient boosting, expliqué sur une régression. <a href="https://www.youtube.com/watch?v=3CC4N4z3GJc" target="_blank" rel="noopener">Ouvrir sur YouTube</a></div>
+    </figure>
+    <figure>
+      <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/jxuNLH5dXCs" title="StatQuest : gradient boosting pour la classification" allow="accelerometer; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      <div class="video-meta">Même idée appliquée à la classification, comme dans notre projet (scores puis probabilités). <a href="https://www.youtube.com/watch?v=jxuNLH5dXCs" target="_blank" rel="noopener">Ouvrir sur YouTube</a></div>
+    </figure>
+    <p class="tabs-note">Vidéos de StatQuest with Josh Starmer, en anglais (sous-titres automatiques traduisibles). Si une vidéo ne s'affiche pas, ouvrez le site avec <code>python3 -m http.server -d site</code> plutôt qu'en double-cliquant sur le fichier.</p>
+  </div>
+</section>
+
+<!-- ============================ 7. REGLAGES ============================ -->
+<section id="reglages">
+  <div class="col">
+    <h2>Les réglages</h2>
+    <p class="lede">Cinq boutons contrôlent le modèle. Ils sont dans <code>configs/style_boosting.yaml</code>.</p>
+  </div>
+  <div class="col wide">
+    <div class="card tablewrap" style="padding:0.4rem 0.6rem">
+    <table>
+      <thead><tr><th>Réglage</th><th>Valeur</th><th>Ce qu'il fait</th><th>Image</th></tr></thead>
+      <tbody>
+        <tr><td><code>max_iter</code></td><td>350</td><td>nombre de tours de boosting</td><td>nombre de coups de golf</td></tr>
+        <tr><td><code>learning_rate</code></td><td>0,08</td><td>fraction de chaque correction qu'on ajoute vraiment</td><td>longueur d'un coup : court et prudent</td></tr>
+        <tr><td><code>max_leaf_nodes</code></td><td>31</td><td>nombre maximum de feuilles par arbre, donc au plus 30 questions</td><td>taille de la grille de questions de chaque arbre</td></tr>
+        <tr><td><code>l2_regularization</code></td><td>0,1</td><td>freine les corrections trop fortes appuyées sur peu d'images</td><td>un frein : on se méfie des conclusions tirées de trois exemples</td></tr>
+        <tr><td><code>class_weight</code></td><td>"balanced"</td><td>donne plus de poids aux classes rares</td><td>un jury qui écoute davantage les petits groupes</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>Le compte des arbres</h3>
+    <p>350 tours × 7 fournisseurs = <strong>2 450 arbres</strong>. Chacun a au plus 31 feuilles, donc le modèle contient au plus 2 450 × 31 = 75 950 feuilles, chaque feuille portant un petit nombre : la correction à ajouter au score d'une classe.</p>
+
+    <h3>Pourquoi « balanced » ?</h3>
+    <p>Sans correction, se tromper sur Mozilla (397 images) coûterait cinq fois moins cher que se tromper sur Apple (1 924). Le modèle apprendrait à négliger Mozilla. <code>balanced</code> pondère chaque image par <code>total / (7 × nombre d'images de sa classe)</code> :</p>
+  </div>
+  <div class="col wide"><figure><div class="figure-card" id="chart-weights"></div><figcaption>Poids d'une image selon son fournisseur. Une image Mozilla pèse 3,55 dans l'apprentissage, une image Apple 0,73.</figcaption></figure></div>
+
+  <div class="col">
+    <h3>Ce que le modèle n'a pas besoin de faire</h3>
+    <ul>
+      <li><strong>Standardiser les mesures.</strong> Un arbre compare une colonne à un seuil : que la colonne aille de 0 à 1 ou de 0 à 1 000 ne change pas ses questions.</li>
+      <li><strong>S'arrêter plus tôt.</strong> scikit-learn n'active l'arrêt anticipé (<em>early stopping</em>) automatiquement qu'au-delà de 10 000 exemples. Ici (7 903 pour apprendre, 9 879 au final), les 350 tours sont toujours exécutés.</li>
+    </ul>
+
+    <h3>Comment on mesure le score</h3>
+    <ol>
+      <li><strong>Séparer</strong> : 80 % des images pour apprendre (7 903), 20 % pour mesurer (1 976), avec les mêmes proportions de fournisseurs dans les deux parts (<code>stratify</code>) et une graine fixe (<code>random_state=42</code>).</li>
+      <li><strong>Mesurer</strong> sur les 1 976 images que le modèle n'a jamais vues : accuracy et macro-F1.</li>
+      <li><strong>Réentraîner</strong> sur 100 % des images (9 879) pour le modèle final, qui prédit le jeu de test.</li>
+    </ol>
+
+    <figure>
+      <iframe class="video" loading="lazy" src="https://www.youtube-nocookie.com/embed/fSytzGwwBVw" title="StatQuest : validation croisée" allow="accelerometer; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      <div class="video-meta">Pourquoi on évalue sur des données mises de côté (validation, validation croisée). <a href="https://www.youtube.com/watch?v=fSytzGwwBVw" target="_blank" rel="noopener">Ouvrir sur YouTube</a></div>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================ 8. RESULTATS ============================ -->
+<section id="resultats">
+  <div class="col">
+    <h2>Les résultats</h2>
+    <p class="lede">Sur 1 976 images jamais vues : 1 897 bien classées, 79 erreurs.</p>
+
+    <p><strong>Accuracy</strong> : part des images bien classées, ici <strong>0,960</strong> (1 897 sur 1 976). <strong>Macro-F1</strong> : moyenne des scores F1 de chaque fournisseur, sans tenir compte de la taille des classes, ici <strong>0,965</strong>. Le F1 d'une classe combine sa <em>précision</em> (quand je dis « Apple », ai-je raison ?) et son <em>rappel</em> (ai-je trouvé tous les Apple ?).</p>
+  </div>
+
+  <div class="col wide">
+    <figure>
+      <div class="figure-card" id="chart-f1"></div>
+      <figcaption>Précision, rappel et F1 par fournisseur sur la validation. Tous dépassent 0,92 en F1. Apple est le plus faible, surtout par manque de précision.</figcaption>
+    </figure>
+    <figure>
+      <div class="figure-card tablewrap" id="chart-cm"></div>
+      <figcaption>Matrice de confusion : les lignes sont les vrais fournisseurs, les colonnes les prédictions. La diagonale compte les réussites. Survolez une case pour la lire.</figcaption>
+    </figure>
+  </div>
+
+  <div class="col">
+    <h3>Ce que dit la matrice</h3>
+    <ul>
+      <li><strong>Apple est le « fourre-tout » du modèle.</strong> 44 des 79 erreurs sont des images prédites Apple à tort (14 de WhatsApp, 12 de Facebook, 9 de Google, 9 de Samsung). C'est pourquoi sa précision (0,893) est la plus basse.</li>
+      <li><strong>Apple et Google se confondent dans les deux sens</strong> : 17 Apple prédits Google, 9 Google prédits Apple. Ils partagent la même largeur (72 px) et des poids de fichier proches.</li>
+      <li><strong>Mozilla est quasi parfait</strong> (précision 1,0, 2 erreurs sur 79) malgré peu d'exemples : sa signature est nette.</li>
+    </ul>
+
+    <h3>Pourquoi ce modèle plutôt qu'un autre ?</h3>
+    <p>Nous avons testé d'autres approches avant celui-ci. Elles ont été retirées du projet pour garder un code lisible, mais voici leurs scores sur la même validation :</p>
+  </div>
+  <div class="col wide">
+    <figure>
+      <div class="figure-card" id="chart-others"></div>
+      <figcaption>Accuracy de validation des essais successifs. Le gradient boosting sur 222 mesures (en vert) bat la régression logistique, un CNN LeNet, MobileNetV3 pré-entraîné et même la forêt aléatoire de type Extra Trees. L'ensemble avec MobileNetV3 gagne trois millièmes de plus, mais ajoute un second modèle à entretenir.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================ 9. LIMITES ============================ -->
+<section id="limites">
+  <div class="col">
+    <h2>Limites et suite</h2>
+    <p class="lede">Un bon score ne dit pas encore <em>pourquoi</em> le modèle réussit. Voici ce qu'il faut savoir.</p>
+
+    <h3>Le modèle lit surtout l'étiquette du fichier</h3>
+    <p>Un arbre à trois niveaux qui ne regarde que la largeur, le mode et le poids atteint déjà 76 % sur l'entraînement (chapitre 5). Le modèle complet monte à 96 % en ajoutant les couleurs. Une part importante de la réussite vient donc de la <strong>chaîne de fabrication</strong> du jeu de données, pas du dessin lui-même. Si un fournisseur change son format d'export, le modèle se trompera, alors qu'un humain reconnaîtrait toujours le style.</p>
+
+    <div class="warn"><p>Ce n'est pas une erreur, mais c'est un choix à assumer et à déclarer : ici, on prédit « le fournisseur tel qu'il apparaît dans ce jeu de données », pas « le style visuel pur ».</p></div>
+
+    <h3>Des images en double, entre l'entraînement et la validation</h3>
+    <p>Une vérification par empreinte de fichier trouve <strong>132 groupes d'images identiques</strong> (281 images) dans le jeu d'entraînement, toujours avec le même fournisseur. Comme la séparation 80/20 est aléatoire, un doublon peut tomber des deux côtés et le modèle « reconnaît » alors une image déjà vue. Par ailleurs, <strong>293 images du jeu de test sont identiques à une image d'entraînement</strong>. Le score de validation est donc probablement un peu optimiste.</p>
+
+    <h3>Peut-on faire du prétraitement ?</h3>
+    <p>Oui, et c'est la suite logique. Chaque piste répond à une question précise :</p>
+    <div class="tablewrap card" style="padding:0.4rem 0.6rem">
+    <table>
+      <thead><tr><th>Piste</th><th>Ce qu'on apprend</th></tr></thead>
+      <tbody>
+        <tr><td>Regarder les images à la main : une grille par fournisseur, des zooms sur les bords, les ombres, la netteté</td><td>quelles différences de qualité existent vraiment, et lesquelles mérite d'être mesurées</td></tr>
+        <tr><td>Retirer les doublons exacts, puis séparer l'entraînement et la validation par <em>groupe</em> d'images identiques</td><td>un score de validation honnête</td></tr>
+        <tr><td>Redimensionner toutes les images à la même taille <em>avant</em> de calculer les métadonnées, ou retirer le bloc A</td><td>combien de points vient du dessin, combien du fichier</td></tr>
+        <tr><td>Ajouter des mesures de forme (contours, texture, par exemple HOG)</td><td>si le dessin seul peut combler l'écart quand on retire A</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="margin-top:1rem">Le code actuel est volontairement court pour que ces expériences restent faciles : chaque piste modifie une fonction de <code>features.py</code>.</p>
+  </div>
+</section>
+
+<!-- ============================ 10. CODE ============================ -->
+<section id="code">
+  <div class="col">
+    <h2>Le code</h2>
+    <p class="lede">Quatre fichiers de code, un fichier de réglages, un test.</p>
+
+<pre><code>configs/style_boosting.yaml    <span class="c"># les 5 réglages + paramètres des images</span>
+src/emoji_provider/
+  data.py                      <span class="c"># associe chaque image à son label (par Id)</span>
+  features.py                  <span class="c"># image  → 222 mesures   (chapitres 3 et 4)</span>
+  model.py                     <span class="c"># le HistGradientBoosting (chapitres 5 à 7)</span>
+scripts/run.py                 <span class="c"># entraîne, mesure, prédit, écrit le CSV daté</span>
+tests/test_features.py         <span class="c"># vérifie les 222 colonnes</span></code></pre>
+
+    <h3>Le modèle, en dix lignes</h3>
+    <p>Tout le « cerveau » du projet tient dans <code>model.py</code> :</p>
+<pre><code><span class="k">from</span> sklearn.ensemble <span class="k">import</span> HistGradientBoostingClassifier
+
+<span class="k">def</span> build_model(config, seed=42):
+    params = config[<span class="s">"model"</span>]
+    <span class="k">return</span> HistGradientBoostingClassifier(
+        learning_rate=params[<span class="s">"learning_rate"</span>],   <span class="c"># 0.08  : coups courts</span>
+        max_iter=params[<span class="s">"max_iter"</span>],             <span class="c"># 350   : nombre de tours</span>
+        max_leaf_nodes=params[<span class="s">"max_leaf_nodes"</span>], <span class="c"># 31    : taille de chaque arbre</span>
+        l2_regularization=params[<span class="s">"l2_regularization"</span>],  <span class="c"># 0.1 : frein</span>
+        class_weight=<span class="s">"balanced"</span>,                  <span class="c"># classes rares écoutées</span>
+        random_state=seed,
+    )</code></pre>
+
+    <h3>De l'image aux 222 colonnes</h3>
+    <p><code>extract_features</code> assemble les trois blocs. Chaque ligne correspond à un morceau du chapitre 4 :</p>
+<pre><code><span class="k">def</span> extract_features(path, bins=32, size=96):
+    <span class="c"># ... lecture du fichier d'origine : largeur, hauteur, mode, canal alpha ...</span>
+    metadata = [...]        <span class="c"># bloc A : 15 colonnes</span>
+    channel_stats = [...]   <span class="c"># bloc B : 15 colonnes (sur les pixels visibles)</span>
+    <span class="k">return</span> np.concatenate([metadata, channel_stats,
+                           extract_color_histogram(path, bins, size)])  <span class="c"># bloc C : 192</span></code></pre>
+
+    <h3>Lancer le projet</h3>
+<pre><code><span class="c"># installer les dépendances (une fois)</span>
+uv sync
+
+<span class="c"># un lancement : entraîne, affiche accuracy et macro-F1, écrit outputs/submission_<date>_<heure>_acc<score>.csv</span>
+uv run python scripts/run.py --data-dir data
+
+<span class="c"># vérifier les mesures</span>
+uv run pytest -q
+
+<span class="c"># ouvrir ce cours</span>
+python3 -m http.server -d site 8000      <span class="c"># puis http://localhost:8000</span></code></pre>
+    <p>Chaque lancement ajoute un seul fichier dans <code>outputs/</code>, par exemple <code>submission_2026-10-04_22-46_acc0.960.csv</code> (date, heure et score de validation dans le nom). Les données attendues sont <code>data/train/</code>, <code>data/test/</code> et <code>data/train_labels.csv</code> (colonnes <code>Id</code>, <code>Label</code>).</p>
+  </div>
+</section>
+
+<!-- ============================ 11. QUIZ ============================ -->
+<section id="quiz">
+  <div class="col">
+    <h2>Vérifier sa compréhension</h2>
+    <p class="lede">Essayez de répondre avant d'ouvrir la réponse.</p>
+
+    <details><summary>Pourquoi ce modèle n'a-t-il pas de « couches » comme un CNN ?</summary>
+      <p>Parce que ce sont des arbres de décision, pas des neurones. On peut parler de « couches » pour les blocs de mesures et pour les 350 tours de boosting, mais rien n'y est multiplié par des poids de réseau : ce sont des comparaisons à des seuils et des additions de corrections.</p></details>
+
+    <details><summary>Pourquoi n'a-t-on pas besoin de standardiser les 222 colonnes ?</summary>
+      <p>Un arbre pose des questions « colonne ≤ seuil ». Multiplier ou décaler une colonne déplace le seuil mais ne change pas quelles images vont à gauche ou à droite.</p></details>
+
+    <details><summary>Pourquoi y a-t-il 2 450 arbres et pas 350 ?</summary>
+      <p>Il y a 7 classes et un arbre par classe à chaque tour : 350 × 7 = 2 450. Chaque arbre corrige le score d'une seule classe.</p></details>
+
+    <details><summary>Quelle différence entre une forêt aléatoire et le boosting ?</summary>
+      <p>La forêt entraîne ses arbres indépendamment, en parallèle, puis les fait voter pour compenser leurs erreurs. Le boosting les entraîne en série : chaque arbre est conçu pour corriger les erreurs de l'ensemble déjà construit.</p></details>
+
+    <details><summary>À quoi sert <code>learning_rate</code> et que se passe-t-il s'il est trop grand ?</summary>
+      <p>Il réduit la correction apportée par chaque arbre (ici à 8 %). S'il est trop grand, chaque coup dépasse la cible et le modèle suit le bruit du jeu d'entraînement ; trop petit, il faut beaucoup plus de tours.</p></details>
+
+    <details><summary>Pourquoi lit-on largeur, mode et poids du fichier avant la conversion en RGB ?</summary>
+      <p>Parce que la conversion (fond blanc, redimensionnement à 96 × 96) efface ces informations. Elles ressemblent à une signature de la chaîne de fabrication de chaque fournisseur, et un arbre sait très bien s'en servir.</p></details>
+
+    <details><summary>Comment vérifier que le modèle apprend le style et pas seulement le format du fichier ?</summary>
+      <p>Entraîner le même modèle sans le bloc A (ou avec des images toutes redimensionnées de la même façon avant la mesure), puis comparer les scores. L'écart indique la part du score qui vient des propriétés du fichier.</p></details>
+  </div>
+</section>
+
+<!-- ============================ 12. RESSOURCES ============================ -->
+<section id="ressources">
+  <div class="col">
+    <h2>Ressources</h2>
+    <ul class="sources">
+      <li><a href="https://scikit-learn.org/stable/modules/ensemble.html#histogram-based-gradient-boosting" target="_blank" rel="noopener">scikit-learn : gradient boosting à histogrammes</a>, la documentation officielle de notre classe.</li>
+      <li><a href="https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingClassifier.html" target="_blank" rel="noopener">Référence de HistGradientBoostingClassifier</a>, avec tous les paramètres.</li>
+      <li><a href="https://scikit-learn.org/stable/modules/tree.html" target="_blank" rel="noopener">scikit-learn : arbres de décision</a>.</li>
+      <li><a href="https://statquest.org/video_index.html" target="_blank" rel="noopener">StatQuest : index des vidéos</a> (arbres, forêts, boosting, validation).</li>
+      <li><a href="https://www.youtube.com/watch?v=J4Wdy0Wc_xQ" target="_blank" rel="noopener">StatQuest : forêts aléatoires</a>, pour comparer avec le boosting.</li>
+    </ul>
+    <p class="tabs-note">Dates et auteurs de la partie « histoire » : Breiman, Friedman, Olshen et Stone (CART, 1984) ; Freund et Schapire (AdaBoost, 1995) ; Friedman (gradient boosting, 2001) ; Chen et Guestrin (XGBoost, 2016) ; Ke et al. (LightGBM, 2017) ; notes de version de scikit-learn 0.21 (2019) et 1.0.</p>
+  </div>
+</section>
+
+</main>
+</div>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,12 +1,9 @@
+# Configuration du modèle à 0.96 d'accuracy : HistGradientBoosting sur 222 features
 seed: 42
-experiment_name: style_metadata_hist_gradient_boosting
 validation_size: 0.2
 image_size: 96
 histogram_bins: 32
-feature_method: style
-notes: Nonlinear boosting over style, native metadata, alpha and colour features
 model:
-  type: hist_gradient_boosting
   learning_rate: 0.08
   max_iter: 350
   max_leaf_nodes: 31

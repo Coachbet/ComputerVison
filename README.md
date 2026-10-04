@@ -1,176 +1,53 @@
-# Emoji Provider Classification
+# Qui a dessiné cet emoji ?
 
-Projet de Computer Vision — classification du fournisseur d’un emoji (Apple,
-Samsung, etc.) à partir de son image.
+Reconnaître le fournisseur d'un emoji (Apple, Facebook, Google, Messenger, Mozilla,
+Samsung, WhatsApp) à partir de son image.
 
-## Objectif et règles de l’assignment
+**Modèle** : `HistGradientBoostingClassifier` (gradient boosting d'arbres) sur 222 mesures
+calculées par image.
+**Score en validation** : accuracy **0,960**, macro-F1 **0,965** (1 976 images jamais vues).
 
-- Travail en groupe de **3 à 4 étudiants** ; un rapport PDF et une base de code par groupe.
-- Tous les membres rejoignent la [compétition Kaggle](https://www.kaggle.com/t/521819a4ff2d4c7a81511fdcb4709a50)
-  avec leur compte `@essec.edu`, forment une équipe et soumettent au moins une
-  fois le notebook initial exécuté sur Colab.
-- Le responsable envoie la composition du groupe à
-  [titouan.rigaud@essec.edu](mailto:titouan.rigaud@essec.edu), avec les membres
-  en copie, puis dépose rapport et code sur Moodle.
-- Seule la meilleure tentative Kaggle compte. Une solution simple, comprise et
-  justifiable est préférable à une solution complexe mal maîtrisée.
-- Le rapport doit être rédigé par le groupe et exporté en PDF.
-- Toute utilisation d’IA doit être déclarée. Compléter
-  [`docs/AI_USAGE.md`](docs/AI_USAGE.md) au fil du projet.
+## Le cours
 
-## Structure
+Le dossier `site/` est un cours illustré, entièrement consacré à ce modèle : schémas,
+analogies, démos interactives, vidéos, histoire du boosting et explication du code.
+
+```bash
+python3 -m http.server -d site 8000      # puis ouvrir http://localhost:8000
+```
+
+(Les vidéos YouTube demandent un serveur local : ne pas double-cliquer sur `index.html`.)
+
+## Le code
 
 ```text
-site/                          # application Streamlit multipage
-├── app.py                     # accueil
-├── content/courses/         # sept cours reliés au code du projet
-├── shared.py                  # fonctions communes
-└── pages/                     # cours, expériences, prédiction et IA
-configs/baseline.yaml          # paramètres reproductibles
-data/{train,test}/             # données locales, ignorées par Git
-data/train_labels.csv
-docs/                          # méthodologie et journal IA
-experiments/results.csv        # registre des essais et scores
-notebooks/                     # notebooks du groupe
-outputs/                       # modèles et soumissions, ignorés
-scripts/{train,predict}.py     # pipeline exécutable
-src/emoji_provider/            # code réutilisable
-tests/                         # tests rapides
-Example_notebook.ipynb         # exemple fourni par l’enseignant
+configs/style_boosting.yaml    # les réglages du modèle
+src/emoji_provider/
+  data.py                      # associe chaque image à son label (par Id)
+  features.py                  # image -> 222 mesures (métadonnées, couleurs, histogrammes)
+  model.py                     # le HistGradientBoostingClassifier
+scripts/run.py                 # entraîne, mesure, prédit le test, écrit le CSV daté
+tests/test_features.py         # vérifie les 222 colonnes
+site/                          # le cours
 ```
 
-## Installation avec uv
+## Utilisation
 
-Le projet est initialisé avec [`uv`](https://docs.astral.sh/uv/) et accepte
-Python 3.11 ou 3.12. Après avoir cloné le dépôt, une seule commande installe la
-bonne version de Python si nécessaire, crée `.venv` et restaure exactement les
-dépendances de `uv.lock` :
+Données attendues : `data/train/`, `data/test/`, `data/train_labels.csv` (colonnes `Id`, `Label`).
 
 ```bash
-uv sync
+uv sync                                        # installe les dépendances
+uv run python scripts/run.py --data-dir data   # un lancement = un CSV daté
+uv run pytest -q                               # tests
 ```
 
-Il n’est pas nécessaire d’activer manuellement le virtualenv : préfixer les
-commandes par `uv run`. Les commandes classiques du projet sont :
-
-```bash
-uv sync                         # crée/met à jour .venv depuis uv.lock
-uv add nom-du-paquet             # ajoute une dépendance et actualise le lockfile
-uv add --dev nom-du-paquet       # ajoute une dépendance de développement
-uv lock                         # recalcule uniquement uv.lock
-uv run python --version         # exécute dans l’environnement du projet
-```
-
-`uv init` a déjà été exécuté : **il ne faut pas le relancer après le clone**.
-Le fichier `requirements.txt` est conservé comme solution de secours pour les
-notebooks Colab ; `pyproject.toml` et `uv.lock` restent les références locales.
-
-## Données
-
-Télécharger le ZIP depuis l’onglet **Data** de Kaggle et le décompresser pour
-obtenir :
+`run.py` sépare 80 % / 20 % (stratifié, `random_state=42`), mesure sur les 20 % (accuracy et
+macro-F1 affichées), réentraîne sur 100 % des images, prédit le test et écrit **un seul fichier** :
 
 ```text
-data/train/
-data/test/
-data/train_labels.csv          # colonnes attendues : Id, Label
+outputs/submission_2026-10-04_22-46_acc0.960.csv     # date, heure, score de validation
 ```
 
-Les données et archives ne doivent jamais être poussées sur GitHub. Le chargeur
-convertit les images en RGB et les redimensionne : tailles différentes, gris et
-RGBA sont donc acceptés. Les labels sont joints aux images par `Id`, pas par
-l’ordre accidentel des lignes.
+Rien d'autre n'est sauvegardé : chaque lancement ajoute simplement un CSV (colonnes `Id`, `Label`).
 
-Sur Colab : cloner ce dépôt, installer `requirements.txt`, placer les données
-avec la même structure et adapter `--data-dir` si nécessaire.
-
-## Baseline reproductible
-
-Six approches sont disponibles : histogrammes RGB/HSV + régression logistique,
-HOG + couleurs, CNN LeNet, transfer learning MobileNetV3, boosting de style et
-ensemble des meilleurs modèles.
-
-```bash
-uv run python scripts/train.py --data-dir data
-uv run python scripts/predict.py --data-dir data
-
-# HOG : entraînement puis soumission dédiée
-uv run python scripts/train_hog.py --data-dir data
-uv run python scripts/predict.py --data-dir data \
-  --model outputs/models/hog_logreg.joblib \
-  --output outputs/submissions/hog_submission.csv
-
-# CNN LeNet : entraînement puis soumission dédiée
-uv run python scripts/train_cnn.py --data-dir data
-uv run python scripts/predict_cnn.py --data-dir data
-
-# Modèle de style et métadonnées (meilleur modèle simple)
-uv run python scripts/train_style.py --data-dir data
-
-# Transfer learning MobileNetV3
-uv run python scripts/train_transfer.py --data-dir data
-
-# Meilleure soumission : boosting + MobileNetV3
-uv run python scripts/predict_ensemble.py --data-dir data
-```
-
-L’entraînement réalise une séparation stratifiée, affiche accuracy et macro F1,
-sauvegarde `outputs/models/baseline.joblib` et ajoute une ligne à
-`experiments/results.csv`. La prédiction crée
-`outputs/submissions/submission.csv` avec les colonnes exactes `Id,Label`.
-
-```bash
-uv run python scripts/train.py --help
-uv run python scripts/predict.py --help
-head outputs/submissions/submission.csv
-```
-
-## Site Streamlit
-
-Le site explique l’objectif, les techniques, les scores et les usages de l’IA.
-Sa page **Cours** propose sept chapitres progressifs avec analogies, histoire,
-ressources externes, questions de compréhension et liens vers le code exact :
-
-```bash
-uv run streamlit run site/app.py
-```
-
-Après chaque essai, compléter sa description et son score Kaggle dans
-`experiments/results.csv`, puis les décisions dans `docs/METHODOLOGY.md`.
-
-## Démarche conseillée
-
-1. Exécuter et soumettre le notebook fourni une fois par membre sur Colab.
-2. Analyser classes, dimensions, canaux, transparence et doublons.
-3. Établir le baseline et conserver son score de validation.
-4. Tester une amélioration à la fois.
-5. Conserver paramètres, scores local/Kaggle et interprétation de chaque essai.
-6. Rejouer le projet sur une machine neuve avant la remise.
-
-Attention aux fuites : des variantes proches d’un même emoji peuvent exister
-chez plusieurs fournisseurs. Si une famille d’emojis est identifiable,
-envisager une validation groupée et expliquer le choix.
-
-## Vérifications
-
-```bash
-uv run pytest -q
-uv run python -m compileall src scripts site
-```
-
-## Checklist de remise
-
-- code exécutable et README à jour ;
-- `submission.csv` valide ;
-- rapport PDF écrit par le groupe ;
-- scores et expériences documentés ;
-- usages et prompts d’IA déclarés ;
-- noms et rôles complétés ci-dessous.
-
-| Rôle | Nom | E-mail |
-|---|---|---|
-| Responsable (à confirmer) | À confirmer | À compléter |
-| Membre | Lara Normand | À compléter |
-| Membre | Kenza Gueddas | À compléter |
-| Membre | Oscar Moulet | À compléter |
-| Membre | Louis Bettelli | À compléter |
+Sans `uv` : `pip install -r requirements.txt`, puis `python scripts/run.py`.
