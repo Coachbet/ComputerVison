@@ -6,3 +6,4 @@ __pycache__/
 data/*
 outputs/*
 !outputs/.gitkeep
+submission.zip
